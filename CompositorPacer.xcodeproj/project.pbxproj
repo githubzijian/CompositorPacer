@@ -1,0 +1,270 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		001000000000000000000101 /* CompositorPacerManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 001000000000000000000001 /* CompositorPacerManager.m */; };
+		001000000000000000000110 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 001000000000000000000012 /* Assets.xcassets */; };
+		001000000000000000000111 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 001000000000000000000013 /* QuartzCore.framework */; };
+		001000000000000000000112 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 001000000000000000000014 /* Metal.framework */; };
+		001000000000000000000113 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 001000000000000000000015 /* CoreVideo.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		001000000000000000000001 /* CompositorPacerManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CompositorPacerManager.m; sourceTree = "<group>"; };
+		001000000000000000000010 /* Compositor Pacer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Compositor Pacer.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		001000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		001000000000000000000012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		001000000000000000000013 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		001000000000000000000014 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		001000000000000000000015 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		001000000000000000000201 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				001000000000000000000111 /* QuartzCore.framework in Frameworks */,
+				001000000000000000000112 /* Metal.framework in Frameworks */,
+				001000000000000000000113 /* CoreVideo.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		001000000000000000000301 = {
+			isa = PBXGroup;
+			children = (
+				001000000000000000000302 /* Sources */,
+				001000000000000000000305 /* Resources */,
+				001000000000000000000306 /* Frameworks */,
+				001000000000000000000304 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		001000000000000000000302 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				001000000000000000000001 /* CompositorPacerManager.m */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		001000000000000000000304 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				001000000000000000000010 /* Compositor Pacer.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		001000000000000000000305 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				001000000000000000000011 /* Info.plist */,
+				001000000000000000000012 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		001000000000000000000306 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				001000000000000000000013 /* QuartzCore.framework */,
+				001000000000000000000014 /* Metal.framework */,
+				001000000000000000000015 /* CoreVideo.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		001000000000000000000401 /* Compositor Pacer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 001000000000000000000701 /* Build configuration list for PBXNativeTarget "Compositor Pacer" */;
+			buildPhases = (
+				001000000000000000000501 /* Sources */,
+				001000000000000000000201 /* Frameworks */,
+				001000000000000000000502 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Compositor Pacer";
+			productName = "Compositor Pacer";
+			productReference = 001000000000000000000010 /* Compositor Pacer.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		001000000000000000000601 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1540;
+				TargetAttributes = {
+					001000000000000000000401 = {
+						CreatedOnToolsVersion = 15.4;
+					};
+				};
+			};
+			buildConfigurationList = 001000000000000000000702 /* Build configuration list for PBXProject "CompositorPacer" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 001000000000000000000301;
+			productRefGroup = 001000000000000000000304 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				001000000000000000000401 /* Compositor Pacer */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		001000000000000000000502 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				001000000000000000000110 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		001000000000000000000501 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				001000000000000000000101 /* CompositorPacerManager.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		001000000000000000000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = "Compositor Pacer";
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
+				PRODUCT_BUNDLE_IDENTIFIER = local.CompositorPacer;
+				PRODUCT_NAME = "Compositor Pacer";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		001000000000000000000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				INFOPLIST_KEY_CFBundleDisplayName = "Compositor Pacer";
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
+				PRODUCT_BUNDLE_IDENTIFIER = local.CompositorPacer;
+				PRODUCT_NAME = "Compositor Pacer";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		001000000000000000000803 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "-";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				ONLY_ACTIVE_ARCH = YES;
+			};
+			name = Debug;
+		};
+		001000000000000000000804 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "-";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		001000000000000000000701 /* Build configuration list for PBXNativeTarget "Compositor Pacer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				001000000000000000000801 /* Debug */,
+				001000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		001000000000000000000702 /* Build configuration list for PBXProject "CompositorPacer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				001000000000000000000803 /* Debug */,
+				001000000000000000000804 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 001000000000000000000601 /* Project object */;
+}
