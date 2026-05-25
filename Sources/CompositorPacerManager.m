@@ -985,14 +985,20 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
 
 - (void)launchAtLoginAction:(NSButton *)sender {
     BOOL enable = sender.state == NSControlStateValueOn;
-    NSError *error = nil;
-    BOOL ok = enable ? [self installLaunchAgent:&error] : [self uninstallLaunchAgent:&error];
-    if (!ok) {
-        sender.state = enable ? NSControlStateValueOff : NSControlStateValueOn;
-        [self appendLog:[NSString stringWithFormat:PacerText(@"log.login.failed"), error.localizedDescription ?: @"unknown error"]];
-    } else {
-        [self appendLog:[NSString stringWithFormat:PacerText(@"log.login"), enable ? PacerText(@"log.enabled") : PacerText(@"log.disabled")]];
-    }
+    sender.enabled = NO;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        BOOL ok = enable ? [self installLaunchAgent:&error] : [self uninstallLaunchAgent:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sender.enabled = YES;
+            sender.state = [self launchAtLoginEnabled] ? NSControlStateValueOn : NSControlStateValueOff;
+            if (!ok) {
+                [self appendLog:[NSString stringWithFormat:PacerText(@"log.login.failed"), error.localizedDescription ?: @"unknown error"]];
+            } else {
+                [self appendLog:[NSString stringWithFormat:PacerText(@"log.login"), enable ? PacerText(@"log.enabled") : PacerText(@"log.disabled")]];
+            }
+        });
+    });
 }
 
 - (BOOL)installLaunchAgent:(NSError **)error {
@@ -1021,14 +1027,17 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         return NO;
     }
 
-    [self runLaunchctlWithArguments:@[ @"bootout", [self guiDomain], agentURL.path ]];
-    [self runLaunchctlWithArguments:@[ @"bootstrap", [self guiDomain], agentURL.path ]];
+    [self runLaunchctlWithArguments:@[ @"bootout", [self guiDomain], agentURL.path ] error:nil];
+    if (![self runLaunchctlWithArguments:@[ @"bootstrap", [self guiDomain], agentURL.path ] error:error]) {
+        [[NSFileManager defaultManager] removeItemAtURL:agentURL error:nil];
+        return NO;
+    }
     return YES;
 }
 
 - (BOOL)uninstallLaunchAgent:(NSError **)error {
     NSURL *agentURL = [self launchAgentURL];
-    [self runLaunchctlWithArguments:@[ @"bootout", [self guiDomain], agentURL.path ]];
+    [self runLaunchctlWithArguments:@[ @"bootout", [self guiDomain], agentURL.path ] error:nil];
     [self removeLegacyLaunchAgent];
     if (![[NSFileManager defaultManager] fileExistsAtPath:agentURL.path]) {
         return YES;
@@ -1039,7 +1048,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
 - (void)removeLegacyLaunchAgent {
     NSURL *legacyURL = [self legacyLaunchAgentURL];
     if ([[NSFileManager defaultManager] fileExistsAtPath:legacyURL.path]) {
-        [self runLaunchctlWithArguments:@[ @"bootout", [self guiDomain], legacyURL.path ]];
+        [self runLaunchctlWithArguments:@[ @"bootout", [self guiDomain], legacyURL.path ] error:nil];
         [[NSFileManager defaultManager] removeItemAtURL:legacyURL error:nil];
     }
 }
@@ -1048,16 +1057,36 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     return [NSString stringWithFormat:@"gui/%u", getuid()];
 }
 
-- (void)runLaunchctlWithArguments:(NSArray<NSString *> *)arguments {
+- (BOOL)runLaunchctlWithArguments:(NSArray<NSString *> *)arguments error:(NSError **)error {
     NSTask *task = [[NSTask alloc] init];
     task.launchPath = @"/bin/launchctl";
     task.arguments = arguments;
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = pipe;
     @try {
         [task launch];
         [task waitUntilExit];
     } @catch (NSException *exception) {
-        (void)exception;
+        if (error) {
+            *error = [NSError errorWithDomain:@"CompositorPacer"
+                                         code:1
+                                     userInfo:@{ NSLocalizedDescriptionKey: exception.reason ?: @"launchctl failed" }];
+        }
+        return NO;
     }
+    if (task.terminationStatus == 0) {
+        return YES;
+    }
+    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSString *message = [output stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (error) {
+        *error = [NSError errorWithDomain:@"CompositorPacer"
+                                     code:task.terminationStatus
+                                 userInfo:@{ NSLocalizedDescriptionKey: message.length ? message : @"launchctl failed" }];
+    }
+    return NO;
 }
 
 - (NSColor *)healthyColor {
