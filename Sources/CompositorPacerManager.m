@@ -687,7 +687,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     self.startButton.bordered = NO;
     self.startButton.wantsLayer = YES;
     self.startButton.layer.cornerRadius = 11.0;
-    self.startButton.layer.backgroundColor = [NSColor colorWithCalibratedRed:0.15 green:0.39 blue:0.92 alpha:1.0].CGColor;
+    self.startButton.layer.backgroundColor = [self primaryActionColor].CGColor;
     [self setPrimaryButtonTitle:PacerText(@"button.start")];
     self.startButton.keyEquivalent = @"\r";
     self.startButton.target = self;
@@ -700,9 +700,9 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     self.closeButton.wantsLayer = YES;
     self.closeButton.layer.cornerRadius = 11.0;
     self.closeButton.layer.borderWidth = 1.0;
-    self.closeButton.layer.borderColor = [NSColor colorWithCalibratedRed:0.85 green:0.20 blue:0.20 alpha:0.30].CGColor;
-    self.closeButton.layer.backgroundColor = [self resolvedColor:NSColor.controlBackgroundColor].CGColor;
-    [self setButton:self.closeButton title:PacerText(@"button.close") color:[self dangerColor] fontSize:13];
+    self.closeButton.layer.borderColor = [[self stopActionColor] colorWithAlphaComponent:0.22].CGColor;
+    self.closeButton.layer.backgroundColor = [self stopButtonBackgroundColor].CGColor;
+    [self setButton:self.closeButton title:PacerText(@"button.close") color:[self stopActionColor] fontSize:13];
     self.closeButton.target = self;
     self.closeButton.action = @selector(closePacer:);
     [content addSubview:self.closeButton];
@@ -809,10 +809,28 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         : [NSColor colorWithCalibratedWhite:0.90 alpha:1.0];
 }
 
-- (NSColor *)primaryBlueColor {
+- (NSColor *)primaryActionColor {
     return [self darkAppearance]
-        ? [NSColor colorWithCalibratedRed:0.24 green:0.47 blue:1.0 alpha:1.0]
-        : [NSColor colorWithCalibratedRed:0.15 green:0.39 blue:0.92 alpha:1.0];
+        ? [NSColor colorWithCalibratedRed:0.24 green:0.56 blue:0.43 alpha:1.0]
+        : [NSColor colorWithCalibratedRed:0.18 green:0.49 blue:0.36 alpha:1.0];
+}
+
+- (NSColor *)disabledButtonBackgroundColor {
+    return [self darkAppearance]
+        ? [NSColor colorWithCalibratedRed:0.145 green:0.155 blue:0.175 alpha:1.0]
+        : [NSColor colorWithCalibratedRed:0.925 green:0.935 blue:0.950 alpha:1.0];
+}
+
+- (NSColor *)stopButtonBackgroundColor {
+    return [self darkAppearance]
+        ? [NSColor colorWithCalibratedRed:0.155 green:0.130 blue:0.125 alpha:1.0]
+        : [NSColor colorWithCalibratedRed:0.985 green:0.970 blue:0.960 alpha:1.0];
+}
+
+- (NSColor *)stopActionColor {
+    return [self darkAppearance]
+        ? [NSColor colorWithCalibratedRed:0.86 green:0.48 blue:0.42 alpha:1.0]
+        : [NSColor colorWithCalibratedRed:0.58 green:0.22 blue:0.18 alpha:1.0];
 }
 
 - (NSColor *)runningPillBackgroundColor {
@@ -842,11 +860,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         card.layer.backgroundColor = [self cardBackgroundColor].CGColor;
         card.layer.borderColor = [self borderColor].CGColor;
     }
-    self.startButton.layer.backgroundColor = [self primaryBlueColor].CGColor;
-    self.closeButton.layer.backgroundColor = [self resolvedColor:NSColor.controlBackgroundColor].CGColor;
-    self.closeButton.layer.borderColor = [[self dangerColor] colorWithAlphaComponent:0.30].CGColor;
-    [self setButton:self.closeButton title:PacerText(@"button.close") color:[self dangerColor] fontSize:13];
-    [self setPrimaryButtonTitle:PacerText(@"button.start")];
+    [self updateButtonAppearance];
     [self updateStatusPillAppearance];
 }
 
@@ -1114,6 +1128,24 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     self.statusLabel.layer.backgroundColor = (self.pacerRunning ? [self runningPillBackgroundColor] : [self stoppedPillBackgroundColor]).CGColor;
 }
 
+- (void)updateButtonAppearance {
+    if (!self.startButton || !self.closeButton) {
+        return;
+    }
+    self.startButton.layer.backgroundColor = (self.startButton.enabled ? [self primaryActionColor] : [self disabledButtonBackgroundColor]).CGColor;
+    [self setButton:self.startButton
+              title:PacerText(@"button.start")
+              color:self.startButton.enabled ? NSColor.whiteColor : NSColor.disabledControlTextColor
+           fontSize:15.0];
+
+    self.closeButton.layer.backgroundColor = (self.closeButton.enabled ? [self stopButtonBackgroundColor] : [self disabledButtonBackgroundColor]).CGColor;
+    self.closeButton.layer.borderColor = [[self stopActionColor] colorWithAlphaComponent:(self.closeButton.enabled ? 0.26 : 0.12)].CGColor;
+    [self setButton:self.closeButton
+              title:PacerText(@"button.close")
+              color:self.closeButton.enabled ? [self stopActionColor] : NSColor.disabledControlTextColor
+           fontSize:13.0];
+}
+
 - (BOOL)nativePacerRunning {
     NSDictionary *status = [self agentStatus];
     if (!status) {
@@ -1188,9 +1220,9 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     self.pacerRunning = [self nativePacerRunning];
     self.statusLabel.stringValue = self.pacerRunning ? PacerText(@"status.running") : PacerText(@"status.stopped");
     [self updateStatusPillAppearance];
-    [self setPrimaryButtonTitle:PacerText(@"button.start")];
     self.startButton.enabled = !self.pacerRunning;
     self.closeButton.enabled = self.pacerRunning;
+    [self updateButtonAppearance];
     [self applyPacerWindowAppearance];
     if (!self.pacerRunning) {
         self.metricsLabel.stringValue = [NSString stringWithFormat:@"%@: --   %@: --   Metal: -- fps   Miss: --/s", PacerText(@"metric.cpu"), PacerText(@"metric.memory")];
@@ -1221,6 +1253,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     }
     self.startButton.enabled = NO;
     self.closeButton.enabled = NO;
+    [self updateButtonAppearance];
     [self appendLog:PacerText(@"log.starting")];
     NSError *error = nil;
     if (![self startAgent:&error]) {
@@ -1236,6 +1269,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     (void)sender;
     self.startButton.enabled = NO;
     self.closeButton.enabled = NO;
+    [self updateButtonAppearance];
     [self appendLog:PacerText(@"log.stopping")];
     [self stopAgentIfRunning];
     [self appendLog:PacerText(@"log.stopped")];
@@ -1266,9 +1300,9 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     self.pacerRunning = running;
     self.statusLabel.stringValue = running ? PacerText(@"status.running") : PacerText(@"status.stopped");
     [self updateStatusPillAppearance];
-    [self setPrimaryButtonTitle:PacerText(@"button.start")];
     self.startButton.enabled = !running;
     self.closeButton.enabled = running;
+    [self updateButtonAppearance];
     if (!running || !status) {
         self.cpuValueLabel.stringValue = @"--";
         self.memoryValueLabel.stringValue = @"--";
@@ -1339,6 +1373,7 @@ int main(int argc, const char *argv[]) {
         BOOL agentMode = [NSProcessInfo.processInfo.arguments containsObject:@"--agent"];
         NSApplication *app = NSApplication.sharedApplication;
         if (agentMode) {
+            [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
             AgentDelegate *delegate = [[AgentDelegate alloc] init];
             app.delegate = delegate;
         } else {

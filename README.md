@@ -4,48 +4,117 @@
 
 <h1 align="center">Compositor Pacer</h1>
 
-Compositor Pacer 是一个很小的 macOS 工具。它的目标不是优化某个 App，也不是修改系统参数，而是在 macOS 26 上创建一个真实存在、但肉眼看不见的小 Metal 窗口。这个窗口每次屏幕刷新时都会向 WindowServer 提交一帧很小的 Metal 画面，从而让系统合成路径保持活跃。对部分机器来说，这可以改善桌面动画、窗口切换、网页滚动/切换时的周期性掉帧感。
+Compositor Pacer 是一个很小的 macOS 工具。它尝试解决一种特定的桌面流畅度问题：在部分 macOS 26 环境里，系统桌面、窗口切换、Space 切换、浏览器滚动或页面切换会出现周期性掉帧感；但当系统里存在一个持续更新的真实窗口时，这种掉帧感会明显减轻。
 
-这个项目来自一次调试观察：在某些 macOS 26 环境里，只要系统中存在一个持续更新的真实窗口，桌面和网页动画就会更稳定。后续测试表明，关键不是某个具体 App，而是系统里有一个真实参与 WindowServer 合成、并持续提交新画面的窗口。
+这个项目的做法不是修改系统参数，不是注入其他 App，也不是制造 CPU 负载。它只做一件事：
 
-当前版本不依赖任何终端 App，也不依赖 PTY、脚本循环或滚动模拟。
+```text
+创建一个肉眼不可见、不可点击、很小的真实 NSWindow
+  -> 在窗口里挂一个 CAMetalLayer
+  -> 用 CVDisplayLink 跟随屏幕刷新
+  -> 每次刷新提交一帧极小的 Metal drawable
+  -> 让 WindowServer 持续看到一个活跃的窗口合成输入
+```
 
-## 核心实现
+换句话说，它给 macOS 的窗口合成路径提供一个很轻的“节拍源”。如果你的机器正好遇到的是 WindowServer/compositor 在空闲或半空闲状态下调度不够积极的问题，它可能让后续桌面动画更稳定。
 
-整个程序只有一个 Objective-C 源文件：`Sources/CompositorPacerManager.m`。它用同一个可执行文件实现了两种运行模式：
+这不是 Apple 官方机制，也不是通用性能优化器。它是基于实际观察和当前代码路径的工程性尝试。
 
-- 普通启动：进入 `AppDelegate`，显示控制窗口。
-- 带 `--agent` 参数启动：进入 `AgentDelegate`，不显示控制 UI，只创建后台小 Metal 窗口。
+## 适用场景
 
-入口逻辑在 `main()`：
+你可能会需要它，如果你观察到：
+
+- 桌面和窗口动画不是一直慢，而是偶发性、周期性地卡一下。
+- 浏览器页面滚动、标签页切换、窗口移动在某些时刻 pacing 不稳定。
+- 打开一个持续刷新画面的普通窗口后，系统动画反而变顺。
+- CPU/GPU 本身并没有明显满载，但视觉上仍有掉帧感。
+
+它不适合这些问题：
+
+- 某个具体 App 自己渲染慢。
+- GPU 或 CPU 已经持续满载。
+- 显示器、线缆、刷新率设置、VRR/HDR 配置本身有问题。
+- 你需要提升游戏或渲染程序的帧率上限。
+
+Compositor Pacer 改善的目标是 compositor/display pipeline 的 pacing 稳定性，不是应用渲染能力。
+
+## 代码结构
+
+整个程序几乎都在一个文件里：
+
+```text
+Sources/CompositorPacerManager.m
+```
+
+它用同一个可执行文件实现两种模式：
+
+```text
+普通模式
+  main()
+    -> 没有 --agent 参数
+    -> 使用 AppDelegate
+    -> 显示控制窗口
+
+Agent 模式
+  main()
+    -> 有 --agent 参数
+    -> 使用 AgentDelegate
+    -> 不显示控制 UI
+    -> 创建透明 Metal pacer 窗口
+```
+
+入口逻辑很短：
 
 ```text
 main()
-  -> 如果参数里有 --agent：使用 AgentDelegate
-  -> 否则：使用 AppDelegate
-  -> [NSApp run]
+  -> 检查 NSProcessInfo.processInfo.arguments 是否包含 --agent
+  -> 创建 NSApplication
+  -> agent 模式设置 NSApplicationActivationPolicyAccessory
+  -> 挂 AppDelegate 或 AgentDelegate
+  -> [app run]
 ```
 
-点击 `Start` 时，控制窗口不会自己做刷新工作，而是通过 `NSTask` 再启动一份当前 app 的可执行文件，并传入 `--agent`。因此真正负责持续刷新的是独立 agent 进程。关闭控制窗口不会停止 agent；点击 `Close` 才会读取状态文件里的 pid，并向 agent 发送终止信号。
+`Resources/Info.plist` 里还设置了：
 
-## 这里的“小 Metal 窗口”是什么
+```xml
+<key>LSUIElement</key>
+<true/>
+```
 
-文档里说的“小 Metal 窗口”，不是一个普通用户会看到的窗口，也不是一张离屏图片。它在代码里由这几层组成：
+这让 app 从启动第一刻起就是无 Dock 图标的 UIElement。这样用户点击 Start 启动后台 agent，或者登录时 LaunchAgent 自动启动 agent，都不会让 Dock 栏出现短暂变化。
+
+## 为什么要分成控制窗口和 agent
+
+控制窗口和真正做 pacing 的 agent 是两个进程。
+
+点击 `Start / 启动` 时，`AppDelegate` 不会自己创建 Metal 刷新窗口，而是调用 `startAgent:`：
 
 ```text
-NSWindow                 一个真实 macOS 窗口，大小 36x36，透明，不接收鼠标事件
-  -> MetalPacerView      放在窗口里的 NSView
-  -> CAMetalLayer        这个 view 背后的 Metal layer
-  -> CAMetalDrawable     每一帧要提交给系统合成器的小画面
+startAgent:
+  -> 如果状态文件显示 agent 已运行，直接返回
+  -> 删除旧 status.plist
+  -> NSTask 启动当前 bundle 的 executable
+  -> 参数传入 --agent
 ```
 
-可以把它理解成：屏幕角落里有一块 36x36 的透明小画布。用户看不见它，也点不到它，但 WindowServer 知道它是一个真实窗口。Compositor Pacer 每次屏幕刷新时都会在这块小画布上画一帧很轻量的 Metal 内容，然后把这帧提交给系统合成器。
+也就是：
 
-很多图形文档会把这种“能被窗口系统合成、可以提交画面的区域”叫做 surface。为了避免概念混乱，下面主要称它为“小 Metal 窗口”。
+```text
+Compositor Pacer.app/Contents/MacOS/Compositor Pacer --agent
+```
 
-## Agent 创建了什么
+这样设计有几个原因：
 
-agent 启动后会执行三件事：
+- 控制窗口可以关闭，后台 pacing 仍然继续。
+- 控制 UI 的刷新和真正的 Metal present 分离，互不影响。
+- agent 可以由 LaunchAgent 在用户登录时直接启动，不需要弹出主窗口。
+- 如果 agent 退出，控制窗口可以通过状态文件发现，而不是依赖窗口对象还在不在。
+
+点击 `Close / 关闭` 时，控制窗口会读取状态文件里的 `pid`，向 agent 发送 `SIGTERM`。如果短时间内还没退出，再发送 `SIGKILL`。关闭控制窗口本身不会停止 agent。
+
+## Agent 启动后做什么
+
+`AgentDelegate applicationDidFinishLaunching:` 只做三件事：
 
 ```text
 AgentDelegate applicationDidFinishLaunching
@@ -54,180 +123,292 @@ AgentDelegate applicationDidFinishLaunching
   -> startStatusWriter
 ```
 
-`startPacerSurface` 创建一个真实的 `NSWindow`：
+### 1. 停掉旧 agent
 
-- frame 固定为 `(8, 8, 36, 36)`，也就是屏幕左下附近一个 36x36 的小窗口。
-- `styleMask` 是 `NSWindowStyleMaskBorderless`，没有标题栏和边框。
-- `level` 是 `NSStatusWindowLevel`，让它属于比较高的窗口层级。
-- `ignoresMouseEvents = YES`，不会挡住鼠标点击。
-- `collectionBehavior` 包含 `CanJoinAllSpaces`、`FullScreenAuxiliary`、`Stationary`，让它尽量跟随所有 Space 和全屏场景。
-- `alphaValue = 0.0`，肉眼不可见。
-- content view 里放入一个 `MetalPacerView`。
-
-这里最关键的点是：它不是离屏 texture，也不是后台 timer，而是一个真实挂在 `NSWindow` 上的 `CAMetalLayer`。即使窗口 alpha 是 0，它仍然走的是“真实窗口 + Metal layer + drawable + present”的路径，而不是纯后台计算。
-
-`MetalPacerView` 初始化时会创建 Metal 环境：
-
-```text
-MTLCreateSystemDefaultDevice()
-  -> newCommandQueue
-  -> CAMetalLayer
-  -> pixelFormat = BGRA8Unorm
-  -> framebufferOnly = YES
-  -> presentsWithTransaction = NO
-  -> drawableSize = window size * backingScaleFactor
-```
-
-`presentsWithTransaction = NO` 很重要：present 不等待 Core Animation transaction 批处理，而是让 Metal command buffer 的 present 更直接地进入显示提交路径。
-
-## 它是怎么刷新的
-
-agent 会在 `MetalPacerView startDisplayLink` 里创建 `CVDisplayLink`：
-
-```text
-CVDisplayLinkCreateWithActiveCGDisplays
-  -> CVDisplayLinkSetOutputCallback
-  -> CVDisplayLinkStart
-```
-
-`CVDisplayLink` 的回调跟随活动显示器刷新节奏触发。每次回调会调用 `presentFrameFromDisplayLink`，直接提交一帧极轻量的 Metal 渲染：
-
-```text
-CVDisplayLink callback
-  -> MetalPacerView presentFrameFromDisplayLink
-  -> CAMetalLayer nextDrawable
-  -> 创建 MTLRenderPassDescriptor
-  -> loadAction = clear
-  -> clearColor 轻微变化
-  -> commandQueue commandBuffer
-  -> renderCommandEncoderWithDescriptor
-  -> endEncoding
-  -> presentDrawable
-  -> commit
-  -> WindowServer compositor
-```
-
-每帧实际做的事情非常少：它没有绘制复杂几何，没有 shader 管线，没有纹理上传，只是 clear 一块 36x36 的 drawable，然后 `presentDrawable`。clear color 会随 frameCounter 轻微变化，目的是确保每次提交都是真实的新帧，而不是一个完全静止、可能被系统优化掉的表面。
-
-换成更短的说法就是：
-
-```text
-每个显示刷新周期：
-  拿一个 CAMetalLayer drawable
-  清空成一帧很小的颜色 buffer
-  把 drawable present 给系统合成器
-```
-
-如果 `nextDrawable` 返回 nil，说明当前 layer 没拿到可提交的 drawable，程序会增加 `drawableMisses`。这就是界面里 `Drawable Miss` 指标的来源。
-
-## 为什么它可能让动画更流畅
-
-macOS 的桌面动画、窗口移动、Mission Control、浏览器页面显示，最终都要经过 WindowServer 和系统合成器。系统会根据窗口状态、显示器刷新率、负载、电源策略等因素调度合成工作。正常情况下这套调度应该足够好，但在某些 macOS 26 环境里，实际表现像是合成路径在空闲或半空闲状态下不够积极，随后用户触发动画时会出现周期性掉帧。
-
-Compositor Pacer 的做法是让 WindowServer 持续看到一个真实窗口正在按刷新节奏提交新 Metal 画面：
-
-```text
-NSWindow
-  -> CAMetalLayer
-  -> CVDisplayLink tick
-  -> Metal command buffer
-  -> presentDrawable
-  -> WindowServer compositor
-```
-
-这可能带来几个效果：
-
-- WindowServer 看到一个稳定更新的真实窗口，而不是完全空闲。
-- Metal drawable 按显示刷新节奏持续进入 present 路径。
-- 系统合成器更不容易进入某种低活跃度或间歇性调度状态。
-- 用户随后触发窗口动画、Space 切换、网页滚动时，合成路径已经处在更活跃的状态。
-
-所以它不是“加速 GPU”，也不是“提升帧率上限”。它更像是给系统合成器一个极轻量的节拍源，让合成/display pipeline 不要在问题环境里过度松弛。它改善的是响应稳定性和帧 pacing，而不是渲染能力本身。
-
-这个解释是基于当前测试现象和 macOS 图形管线行为做出的工程判断，并不是 Apple 官方公开文档承诺的机制。所以：
-
-- 在你的机器上有效，不代表所有 macOS 26 机器都一定有效。
-- 它改善的是特定系统状态下的流畅度问题，不是通用性能优化器。
-- 如果系统后续更新修复了 WindowServer 行为，这个工具可能就不再必要。
-
-## 我的测试环境
-
-目前这个工具主要是在下面这台机器和系统版本上观察、验证的：
-
-- macOS：`26.5`，build `25F71`
-- CPU：Intel Core i7-13700K
-- 内存：`32 GB`
-- GPU：AMD Radeon RX 5700 XT，`8 GB` VRAM，Metal supported
-
-上面的信息只用于说明已验证环境。不同硬件、显示器配置或 macOS 版本下，实际效果可能不同。
-
-## 为什么不是后台循环
-
-早期线索来自一个持续刷新的普通窗口：当它存在时，桌面和网页切换会更顺。但后续测试说明，具体 App 不是关键，关键是“有一个真实参与屏幕合成的窗口持续提交新画面”。
-
-这也是为什么当前实现没有使用这些方案：
-
-- 纯 CPU while loop：会制造负载，但不会成为 WindowServer 的窗口合成输入。
-- 普通后台 timer：只能唤醒进程，不等于提交显示 drawable。
-- 离屏 Metal texture：GPU 可能在工作，但没有被窗口系统消费。
-- 没有 NSWindow 的 IOSurface / CAMetalLayer：不一定进入同一条 WindowServer 合成路径。
-
-当前验证有效的路径是：
-
-```text
-真实 NSWindow
-  -> CAMetalLayer
-  -> CVDisplayLink
-  -> Metal presentDrawable
-  -> WindowServer compositor
-```
-
-所以这个项目保留了一个 36x36 的透明小窗口。它可以透明、无边框、不接收鼠标事件，但它仍然是 WindowServer 可以管理和合成的真实窗口。
-
-## 主程序和后台 agent
-
-当前架构分成两个模式：
-
-- 普通打开 `.app`：显示控制面板。
-- 使用 `--agent` 启动：只创建负责持续刷新的小 Metal 窗口，不显示主界面。
-
-点击 `Start` 后，控制面板会启动后台 agent。关闭主窗口不会停止 agent。只有点击 `Close` 时，才会主动结束后台 agent。
-
-agent 会每秒写一次状态文件：
+`stopPreviousAgentInstanceIfNeeded` 会读取：
 
 ```text
 ~/Library/Application Support/Compositor Pacer/status.plist
 ```
 
-控制窗口每秒读取这个文件，并用其中的 `pid`、`timestamp` 判断 agent 是否还活着。这样 UI 和真正的 pacing 工作是解耦的：UI 可以关闭，agent 仍然继续 present；agent 崩溃或退出，UI 也能在几秒内发现。
+如果里面有旧 pid，并且这个 pid 仍然存活，就先发 `SIGTERM`。这样可以避免用户重复点击 Start、或者登录项和手动启动叠加时出现多个 pacer agent 同时 present。
 
-## 界面指标说明
+### 2. 创建真实窗口
 
-主窗口里显示的指标来自后台 agent 写出的状态文件：
+`startPacerSurface` 创建一个 `NSWindow`：
 
-- `CPU`：agent 进程在采样周期内的 CPU 时间占比。
-- `内存 / Memory`：agent 进程的 resident memory。
-- `Metal FPS`：agent 每秒成功 present 的 Metal frame 数。
-- `Drawable Miss`：`CAMetalLayer` 没有返回 drawable 的频率。
+```text
+frame:              (8, 8, 36, 36)
+styleMask:          NSWindowStyleMaskBorderless
+level:              NSStatusWindowLevel
+opaque:             NO
+alphaValue:         0.0
+ignoresMouseEvents: YES
+collectionBehavior: CanJoinAllSpaces | FullScreenAuxiliary | Stationary
+```
 
-状态文件里还会记录：
+这些设置分别对应下面的目的：
 
-- `presentedFrames`：agent 启动以来成功提交的总帧数。
-- `drawableMisses`：agent 启动以来 `nextDrawable` 失败的总次数。
-- `tinyWindow`：当前实现固定为 true，用来表明 agent 创建了这个 36x36 的透明小窗口。
-- `alpha`：当前小窗口的透明度，默认是 0。
+- `36x36`：面积很小，降低内存带宽和合成成本。
+- `NSWindowStyleMaskBorderless`：没有标题栏、边框和普通窗口装饰。
+- `alphaValue = 0.0`：肉眼不可见。
+- `ignoresMouseEvents = YES`：不会挡住鼠标点击。
+- `NSStatusWindowLevel`：让它作为系统级小窗口存在，不依赖普通文档窗口层级。
+- `CanJoinAllSpaces` 和 `FullScreenAuxiliary`：尽量让它在多 Space、全屏场景中仍然存在。
+- `Stationary`：避免它参与普通窗口移动语义。
 
-macOS 没有稳定公开的“单进程 GPU 占用百分比”API，所以这里没有显示传统意义上的 GPU 百分比。对这个程序来说，更关键的是 Metal present rate 和 drawable miss，它们更能反映这个小 Metal 窗口是否稳定参与系统合成。
+最重要的是：它仍然是一个真实 `NSWindow`。这不是离屏 texture，也不是纯后台 timer。WindowServer 能看见这个窗口，Core Animation 能管理它，窗口里的 `CAMetalLayer` 能拿到 drawable 并 present。
+
+### 3. 写状态文件
+
+agent 每秒写一次状态文件：
+
+```text
+~/Library/Application Support/Compositor Pacer/status.plist
+```
+
+里面包括：
+
+```text
+pid
+timestamp
+running
+tinyWindow
+alpha
+cpuPercent
+memoryMB
+memoryTrendMBPerMinute
+metalFPS
+missesPerSecond
+presentedFrames
+drawableMisses
+```
+
+控制窗口每秒读取这个文件。它用 `pid + timestamp` 判断 agent 是否真的还活着：
+
+```text
+timestamp 距离当前时间小于 3 秒
+并且 kill(pid, 0) 返回进程存在
+  -> 认为 agent 正在运行
+```
+
+这样 UI 不需要和 agent 建立 IPC，也不需要共享对象。一个 plist 文件就足够表达状态。
+
+## 小 Metal 窗口到底是什么
+
+agent 创建的窗口结构是：
+
+```text
+NSWindow
+  -> contentView
+    -> MetalPacerView : NSView
+      -> CAMetalLayer
+        -> CAMetalDrawable
+```
+
+`MetalPacerView` 初始化时做了这些事：
+
+```text
+MTLCreateSystemDefaultDevice()
+  -> newCommandQueue
+  -> wantsLayer = YES
+  -> layer = CAMetalLayer
+  -> pixelFormat = MTLPixelFormatBGRA8Unorm
+  -> framebufferOnly = YES
+  -> opaque = YES
+  -> presentsWithTransaction = NO
+  -> drawableSize = view size * backingScaleFactor
+```
+
+几个关键点：
+
+- `CAMetalLayer` 是窗口系统能消费的 Metal layer。
+- `framebufferOnly = YES` 表示这个 drawable 只用于渲染输出，不做纹理采样等额外用途。
+- `presentsWithTransaction = NO` 让 Metal command buffer 的 present 不等待 Core Animation transaction 批处理。
+- `drawableSize` 会按 backing scale 调整，避免 Retina 屏幕下 layer 尺寸不匹配。
+
+这个 view 不画复杂内容。每一帧只是 clear 一个很小的 drawable，然后 present。
+
+## 每一帧发生什么
+
+agent 使用 `CVDisplayLink` 跟随显示刷新：
+
+```text
+startDisplayLink
+  -> CVDisplayLinkCreateWithActiveCGDisplays
+  -> CVDisplayLinkSetOutputCallback
+  -> CVDisplayLinkStart
+```
+
+每次 display link 回调会调用：
+
+```text
+presentFrameFromDisplayLink
+```
+
+这一帧的完整路径是：
+
+```text
+CVDisplayLink callback
+  -> CAMetalLayer nextDrawable
+  -> 创建 MTLRenderPassDescriptor
+  -> loadAction = clear
+  -> clearColor 按 frameCounter 轻微变化
+  -> commandQueue commandBuffer
+  -> renderCommandEncoderWithDescriptor
+  -> endEncoding
+  -> presentDrawable
+  -> commit
+  -> WindowServer/compositor 接收这个窗口的新 frame
+```
+
+它没有 shader 管线，没有纹理上传，没有几何绘制。它只是让一个 36x36 的 layer 每个刷新周期都提交一个真实的新 drawable。
+
+clear color 会轻微变化，这是有意的。如果每一帧内容完全一样，系统或驱动层有机会把它当作静态内容处理。轻微变化可以让每次 present 更明确地成为“新帧”。
+
+如果 `nextDrawable` 返回 nil，代码会增加 `drawableMisses`。这通常表示 `CAMetalLayer` 当前没有可用 drawable，可能是窗口/layer 状态、系统压力或 present 节奏导致。UI 里的 `Drawable Miss` 就来自这里。
+
+## 为什么不是别的方案
+
+这个项目有意避开了一些看似简单、但对目标无效或不稳定的做法。
+
+### 纯 CPU 循环
+
+CPU 循环可以制造负载，但它不会向 WindowServer 提交窗口内容。它可能让系统更忙，却不一定让 compositor 的窗口合成输入更活跃。
+
+### 后台 timer
+
+普通 timer 只能唤醒进程。它不等于显示刷新，也不等于向屏幕合成路径提交 drawable。
+
+### 离屏 Metal texture
+
+离屏 Metal 工作能让 GPU 忙起来，但如果结果没有挂到一个真实窗口的 layer 上，WindowServer 不一定把它当作桌面合成输入。
+
+### 完全透明但没有真实 present 的窗口
+
+只有窗口还不够。关键是这个窗口背后的 `CAMetalLayer` 持续拿 drawable 并 `presentDrawable`。这个 present 才是让系统合成路径持续收到新内容的动作。
+
+当前代码保留的是这条路径：
+
+```text
+真实 NSWindow
+  -> CAMetalLayer
+  -> CVDisplayLink
+  -> Metal command buffer
+  -> presentDrawable
+  -> WindowServer/compositor
+```
+
+## 为什么它可能有效
+
+macOS 桌面最终由 WindowServer 和系统 compositor 统一合成。窗口移动、Mission Control、Space 切换、浏览器窗口内容，最终都会经过这个系统级显示路径。
+
+在理想情况下，系统应该自己用合适的节奏调度合成工作。但在某些 macOS 26 环境里，实际现象像是：
+
+```text
+桌面没有持续活跃的窗口更新
+  -> compositor/display pipeline 进入较松弛的调度状态
+  -> 用户突然触发动画或滚动
+  -> 前几帧或某些周期的 pacing 不稳定
+```
+
+Compositor Pacer 的假设是：
+
+```text
+持续存在一个极小、真实、按刷新节奏 present 的窗口
+  -> WindowServer 持续收到轻量合成输入
+  -> compositor/display pipeline 更不容易完全松弛
+  -> 用户触发其他动画时，显示路径已经处在活跃节奏中
+```
+
+这也是为什么它不追求高 GPU 使用率。理想状态下，CPU 和内存都应该很低，Metal FPS 接近显示器刷新率，Drawable Miss 接近 0。
 
 ## 开机启动
 
-勾选 `Launch at login / 开机启动` 后，程序会写入一个用户级 LaunchAgent：
+勾选 `Launch at login / 开机启动` 后，程序会写入用户级 LaunchAgent：
 
 ```text
 ~/Library/LaunchAgents/local.CompositorPacer.agent.plist
 ```
 
-这个 LaunchAgent 只启动后台 agent，不会弹出主控制窗口。
+plist 里的核心内容是：
+
+```text
+Label: local.CompositorPacer.agent
+ProgramArguments:
+  - 当前 app bundle 里的 executable
+  - --agent
+RunAtLoad: true
+KeepAlive: false
+```
+
+所以它的语义是：用户登录后自动启动后台 agent，不弹出控制窗口。
+
+默认情况下，开机启动没有勾选。控制窗口只是检查上面的 plist 是否存在：
+
+```text
+plist 存在   -> 复选框显示已勾选
+plist 不存在 -> 复选框显示未勾选
+```
+
+`KeepAlive = false` 表示 launchd 只在登录时启动一次。如果 agent 后续崩溃，launchd 不会自动重启它。这是当前版本的保守选择，避免异常情况下反复拉起。
+
+## Dock 行为
+
+这个 app 在 `Info.plist` 中设置了 `LSUIElement = true`。因此：
+
+- 主控制窗口不会常驻 Dock 图标。
+- 点击 Start 启动 `--agent` 时，Dock 不应闪动。
+- 登录项启动 agent 时，Dock 不应出现临时图标。
+
+代码里 agent 模式还会调用：
+
+```text
+[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory]
+```
+
+这是运行时的补充设置。真正防止启动瞬间 Dock 变化的关键是 `LSUIElement`，因为它在进程注册为 app 之前就生效。
+
+## 指标怎么看
+
+控制窗口显示的指标来自 agent 写出的状态文件。
+
+### CPU
+
+代码用 `getrusage(RUSAGE_SELF)` 计算 agent 进程的 user time + system time，再除以采样间隔。它反映的是 agent 自身 CPU 开销。
+
+### Memory
+
+代码用 `task_info(mach_task_self(), MACH_TASK_BASIC_INFO, ...)` 读取 resident memory。UI 显示的是 MB。
+
+### Metal FPS
+
+agent 记录 `presentedFrames`。每秒状态刷新时，用这一秒新增的 frame 数除以经过时间，得到 Metal FPS。它应该接近当前显示器刷新率。
+
+### Drawable Miss
+
+每当 `CAMetalLayer nextDrawable` 返回 nil，`drawableMisses` 加 1。UI 显示每秒 miss 数。正常情况下它应该接近 0。
+
+### 为什么没有 GPU 百分比
+
+macOS 没有稳定公开的单进程 GPU 百分比 API。对这个工具来说，更重要的不是 GPU 占用，而是：
+
+```text
+Metal FPS 是否稳定
+Drawable Miss 是否很低
+CPU/Memory 是否足够小
+```
+
+## 当前测试环境
+
+目前主要观察和验证环境：
+
+- macOS: `26.5`, build `25F71`
+- CPU: Intel Core i7-13700K
+- Memory: `32 GB`
+- GPU: AMD Radeon RX 5700 XT, `8 GB` VRAM, Metal supported
+
+这只表示已验证环境，不表示所有 macOS 26 设备都会有同样效果。
 
 ## 运行依赖
 
@@ -240,13 +421,13 @@ macOS 没有稳定公开的“单进程 GPU 占用百分比”API，所以这里
 
 不需要：
 
-- 任何终端 App
+- Terminal 或其他终端 App
 - Python
 - Node.js
 - Homebrew
 - Xcode
 
-只有从源码编译时才需要 Xcode Command Line Tools 或 Xcode。
+只有从源码构建时才需要 Xcode Command Line Tools 或 Xcode。
 
 ## 构建
 
@@ -256,10 +437,16 @@ macOS 没有稳定公开的“单进程 GPU 占用百分比”API，所以这里
 ./build.sh
 ```
 
-构建产物会生成在：
+构建产物：
 
 ```text
 release/CompositorPacer/Compositor Pacer.app
+```
+
+GitHub Release 可以上传 zip 版本，例如：
+
+```text
+release/CompositorPacer/CompositorPacer-0.1.0-macos.zip
 ```
 
 ## Xcode 打开
@@ -268,10 +455,10 @@ release/CompositorPacer/Compositor Pacer.app
 open CompositorPacer.xcodeproj
 ```
 
-项目主要文件：
+项目结构：
 
 ```text
-CompositorPacerSource/
+CompositorPacer/
   CompositorPacer.xcodeproj
   Sources/
     CompositorPacerManager.m
@@ -284,7 +471,8 @@ CompositorPacerSource/
 
 ## 注意事项
 
-- `CVDisplayLink` 在新 SDK 中被标记为 deprecated，但当前测试里这条路径是有效路径，所以暂时保留。
-- 如果将来重构，关键点是不要把 Metal present 全部调度回主线程，否则可能失去当前效果，或者让 UI 本身变卡。
-- 如果程序能运行但不再改善流畅度，优先检查后台 agent 是否还活着，以及 `Metal FPS` 是否接近显示器刷新率。
-- 如果给别人分发，未签名/未公证的 `.app` 可能会被 Gatekeeper 拦截，需要右键打开，或者后续做签名和 notarization。
+- `CVDisplayLink` 在新 SDK 中被标记为 deprecated，但当前版本保留它，因为它直接表达了“跟随显示刷新触发 present”的目标。
+- 如果将来迁移到新的 display link API，关键是保留“真实窗口 + CAMetalLayer + 每刷新周期 presentDrawable”的路径。
+- 不建议把所有 Metal present 调度回主线程。当前代码让 display link 回调直接提交极小的 command buffer，是为了减少 UI 线程参与。
+- 未签名/未公证的 `.app` 可能被 Gatekeeper 拦截。分发给其他用户时，首次打开可能需要右键选择 Open，或者后续做 Developer ID 签名和 notarization。
+- 如果程序能运行但没有改善，先检查 agent 是否运行、`Metal FPS` 是否接近刷新率、`Drawable Miss` 是否接近 0。
