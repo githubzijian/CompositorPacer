@@ -45,4 +45,6 @@ if [[ -d "$project_dir/Resources/Assets.xcassets" ]]; then
   fi
 fi
 
+codesign --force --deep --sign - "$app_dir"
+
 print "built: $app_dir"

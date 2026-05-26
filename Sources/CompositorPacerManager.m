@@ -4,6 +4,7 @@
 #import <CoreVideo/CoreVideo.h>
 #import <mach/mach.h>
 #import <sys/resource.h>
+#import <sys/stat.h>
 #import <signal.h>
 #import <unistd.h>
 
@@ -130,6 +131,10 @@ static NSURL *PacerApplicationSupportDirectory(void) {
 
 static NSURL *PacerStatusURL(void) {
     return [PacerApplicationSupportDirectory() URLByAppendingPathComponent:PacerStatusFileName];
+}
+
+static NSURL *PacerAgentExecutableURL(void) {
+    return [PacerApplicationSupportDirectory() URLByAppendingPathComponent:@"Compositor Pacer Agent"];
 }
 
 static double PacerProcessCPUTime(void) {
@@ -556,6 +561,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     (void)notification;
     [self buildWindow];
     [self startMetricsSampler];
+    [self migrateLaunchAgentIfNeeded];
     [self refreshStatus];
 }
 
@@ -997,6 +1003,24 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     return [[NSFileManager defaultManager] fileExistsAtPath:self.launchAgentURL.path];
 }
 
+- (BOOL)launchAgentUsesBundledExecutable {
+    NSDictionary *plist = [NSDictionary dictionaryWithContentsOfURL:self.launchAgentURL];
+    NSArray *arguments = [plist isKindOfClass:NSDictionary.class] ? plist[@"ProgramArguments"] : nil;
+    NSString *program = [arguments isKindOfClass:NSArray.class] ? arguments.firstObject : nil;
+    NSString *bundledExecutable = NSBundle.mainBundle.executablePath;
+    return program.length && bundledExecutable.length && [program isEqualToString:bundledExecutable];
+}
+
+- (void)migrateLaunchAgentIfNeeded {
+    if (![self launchAtLoginEnabled] || ![self launchAgentUsesBundledExecutable]) {
+        return;
+    }
+    NSError *error = nil;
+    if (![self installLaunchAgent:&error]) {
+        [self appendLog:[NSString stringWithFormat:PacerText(@"log.login.failed"), error.localizedDescription ?: @"unknown error"]];
+    }
+}
+
 - (void)launchAtLoginAction:(NSButton *)sender {
     BOOL enable = sender.state == NSControlStateValueOn;
     sender.enabled = NO;
@@ -1026,10 +1050,14 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         return NO;
     }
 
-    NSString *executablePath = NSBundle.mainBundle.executablePath ?: NSProcessInfo.processInfo.arguments.firstObject;
+    NSURL *agentExecutableURL = [self prepareAgentExecutable:error];
+    if (!agentExecutableURL) {
+        return NO;
+    }
+
     NSDictionary *plist = @{
         @"Label": PacerLaunchAgentLabel,
-        @"ProgramArguments": @[ executablePath ?: @"", @"--agent" ],
+        @"ProgramArguments": @[ agentExecutableURL.path, @"--agent" ],
         @"RunAtLoad": @YES,
         @"KeepAlive": @NO
     };
@@ -1101,6 +1129,48 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
                                  userInfo:@{ NSLocalizedDescriptionKey: message.length ? message : @"launchctl failed" }];
     }
     return NO;
+}
+
+- (NSURL *)prepareAgentExecutable:(NSError **)error {
+    NSString *sourcePath = NSBundle.mainBundle.executablePath ?: NSProcessInfo.processInfo.arguments.firstObject;
+    if (!sourcePath.length) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"CompositorPacer"
+                                         code:1
+                                     userInfo:@{ NSLocalizedDescriptionKey: PacerText(@"error.start.agent") }];
+        }
+        return nil;
+    }
+
+    NSURL *agentURL = PacerAgentExecutableURL();
+    NSURL *directory = [agentURL URLByDeletingLastPathComponent];
+    NSFileManager *fileManager = NSFileManager.defaultManager;
+    if (![fileManager createDirectoryAtURL:directory
+                withIntermediateDirectories:YES
+                                 attributes:nil
+                                      error:error]) {
+        return nil;
+    }
+
+    NSDictionary *sourceAttributes = [fileManager attributesOfItemAtPath:sourcePath error:nil];
+    NSDictionary *agentAttributes = [fileManager attributesOfItemAtPath:agentURL.path error:nil];
+    BOOL needsCopy = !agentAttributes;
+    if (!needsCopy && sourceAttributes && agentAttributes) {
+        NSDate *sourceDate = sourceAttributes[NSFileModificationDate];
+        NSDate *agentDate = agentAttributes[NSFileModificationDate];
+        NSNumber *sourceSize = sourceAttributes[NSFileSize];
+        NSNumber *agentSize = agentAttributes[NSFileSize];
+        needsCopy = ![sourceDate isEqualToDate:agentDate] || ![sourceSize isEqualToNumber:agentSize];
+    }
+
+    if (needsCopy) {
+        [fileManager removeItemAtURL:agentURL error:nil];
+        if (![fileManager copyItemAtPath:sourcePath toPath:agentURL.path error:error]) {
+            return nil;
+        }
+        chmod(agentURL.path.fileSystemRepresentation, 0755);
+    }
+    return agentURL;
 }
 
 - (NSColor *)healthyColor {
@@ -1182,8 +1252,12 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         return YES;
     }
     [[NSFileManager defaultManager] removeItemAtURL:PacerStatusURL() error:nil];
+    NSURL *agentExecutableURL = [self prepareAgentExecutable:error];
+    if (!agentExecutableURL) {
+        return NO;
+    }
     NSTask *task = [[NSTask alloc] init];
-    task.launchPath = NSBundle.mainBundle.executablePath ?: NSProcessInfo.processInfo.arguments.firstObject;
+    task.launchPath = agentExecutableURL.path;
     task.arguments = @[ @"--agent" ];
     @try {
         [task launch];
