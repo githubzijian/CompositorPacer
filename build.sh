@@ -15,7 +15,10 @@ resources="$contents/Resources"
 rm -rf "$release_dir"
 mkdir -p "$macos" "$resources"
 
-clang -fobjc-arc "$project_dir/Sources/CompositorPacerManager.m" \
+clang -fobjc-arc \
+  -arch x86_64 \
+  -arch arm64 \
+  "$project_dir/Sources/CompositorPacerManager.m" \
   -framework Cocoa \
   -framework QuartzCore \
   -framework Metal \
