@@ -46,6 +46,7 @@ static NSString *PacerText(NSString *key) {
             @"cpu.high": @"High overhead",
             @"memory.stable": @"Stable",
             @"metal.refresh": @"On refresh",
+            @"metal.target": @"Target %.0f Hz",
             @"metal.below": @"Below target",
             @"metal.low": @"Too low",
             @"miss.clean": @"Clean",
@@ -92,6 +93,7 @@ static NSString *PacerText(NSString *key) {
             @"cpu.high": @"进程开销较高",
             @"memory.stable": @"稳定",
             @"metal.refresh": @"跟随刷新",
+            @"metal.target": @"目标 %.0f Hz",
             @"metal.below": @"低于目标",
             @"metal.low": @"过低",
             @"miss.clean": @"正常",
@@ -160,6 +162,29 @@ static NSUInteger PacerResidentMemoryBytes(void) {
     return (NSUInteger)info.resident_size;
 }
 
+static CGDirectDisplayID PacerDisplayIDForScreen(NSScreen *screen) {
+    NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+    return screenNumber ? (CGDirectDisplayID)screenNumber.unsignedIntValue : kCGDirectMainDisplay;
+}
+
+static double PacerRefreshHzForDisplayLink(CVDisplayLinkRef link) {
+    CVTime period = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(link);
+    if (period.timeValue <= 0 || period.timeScale <= 0) {
+        return 0.0;
+    }
+    return (double)period.timeScale / (double)period.timeValue;
+}
+
+static double PacerRefreshHzForDisplay(CGDirectDisplayID displayID) {
+    CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displayID);
+    if (!mode) {
+        return 0.0;
+    }
+    double refreshHz = CGDisplayModeGetRefreshRate(mode);
+    CGDisplayModeRelease(mode);
+    return refreshHz;
+}
+
 @interface MetalPacerView : NSView
 @property(nonatomic, strong) id<MTLDevice> device;
 @property(nonatomic, strong) id<MTLCommandQueue> commandQueue;
@@ -168,6 +193,7 @@ static NSUInteger PacerResidentMemoryBytes(void) {
 @property(atomic, assign) unsigned long long presentedFrames;
 @property(atomic, assign) unsigned long long drawableMisses;
 @property(atomic, assign) BOOL displayLinkActive;
+@property(atomic, assign) double targetRefreshHz;
 @property(nonatomic, assign) CVDisplayLinkRef displayLink;
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
@@ -260,9 +286,14 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     self.presentedFrames = 0;
     self.drawableMisses = 0;
     CVDisplayLinkRef link = NULL;
-    CVReturn result = CVDisplayLinkCreateWithActiveCGDisplays(&link);
+    CGDirectDisplayID displayID = PacerDisplayIDForScreen(self.window.screen ?: NSScreen.mainScreen);
+    CVReturn result = CVDisplayLinkCreateWithCGDisplay(displayID, &link);
     if (result != kCVReturnSuccess || !link) {
         return;
+    }
+    self.targetRefreshHz = PacerRefreshHzForDisplayLink(link);
+    if (self.targetRefreshHz <= 0.0) {
+        self.targetRefreshHz = PacerRefreshHzForDisplay(displayID);
     }
     CVDisplayLinkSetOutputCallback(link, MetalPacerDisplayLinkCallback, (__bridge void *)self);
     self.displayLinkActive = YES;
@@ -275,6 +306,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         return;
     }
     self.displayLinkActive = NO;
+    self.targetRefreshHz = 0.0;
     CVDisplayLinkStop(self.displayLink);
     CVDisplayLinkRelease(self.displayLink);
     self.displayLink = NULL;
@@ -447,6 +479,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     double missesPerSecond = (double)(misses - self.lastStatusMisses) / elapsed;
     double memoryMB = (double)PacerResidentMemoryBytes() / 1048576.0;
     double memoryTrend = self.lastMemoryMB > 0.0 ? (memoryMB - self.lastMemoryMB) / elapsed * 60.0 : 0.0;
+    double targetRefreshHz = self.metalPacerView.targetRefreshHz;
     self.lastMemoryMB = memoryMB;
 
     NSDictionary *status = @{
@@ -459,6 +492,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
         @"memoryMB": @(memoryMB),
         @"memoryTrendMBPerMinute": @(memoryTrend),
         @"metalFPS": @(metalFPS),
+        @"targetRefreshHz": @(targetRefreshHz),
         @"missesPerSecond": @(missesPerSecond),
         @"presentedFrames": @(frames),
         @"drawableMisses": @(misses)
@@ -1299,7 +1333,7 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     [self updateButtonAppearance];
     [self applyPacerWindowAppearance];
     if (!self.pacerRunning) {
-        self.metricsLabel.stringValue = [NSString stringWithFormat:@"%@: --   %@: --   Metal: -- fps   Miss: --/s", PacerText(@"metric.cpu"), PacerText(@"metric.memory")];
+        self.metricsLabel.stringValue = [NSString stringWithFormat:@"%@: --   %@: --   Metal: -- fps / -- Hz   Miss: --/s", PacerText(@"metric.cpu"), PacerText(@"metric.memory")];
         self.cpuValueLabel.stringValue = @"--";
         self.memoryValueLabel.stringValue = @"--";
         self.metalValueLabel.stringValue = @"--";
@@ -1393,16 +1427,19 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
 
     double cpuPercent = [status[@"cpuPercent"] doubleValue];
     double metalFPS = [status[@"metalFPS"] doubleValue];
+    double targetRefreshHz = [status[@"targetRefreshHz"] doubleValue];
     double missesPerSecond = [status[@"missesPerSecond"] doubleValue];
     double memoryMB = [status[@"memoryMB"] doubleValue];
     self.memoryTrendMBPerMinute = [status[@"memoryTrendMBPerMinute"] doubleValue];
 
-    self.metricsLabel.stringValue = [NSString stringWithFormat:@"%@: %.1f%%   %@: %.1f MB   Metal: %.0f fps   Miss: %.1f/s",
+    NSString *targetText = targetRefreshHz > 0.0 ? [NSString stringWithFormat:@" / %.0f Hz", targetRefreshHz] : @"";
+    self.metricsLabel.stringValue = [NSString stringWithFormat:@"%@: %.1f%%   %@: %.1f MB   Metal: %.0f fps%@   Miss: %.1f/s",
                                      PacerText(@"metric.cpu"),
                                      cpuPercent,
                                      PacerText(@"metric.memory"),
                                      memoryMB,
                                      metalFPS,
+                                     targetText,
                                      missesPerSecond];
 
     self.cpuValueLabel.stringValue = [NSString stringWithFormat:@"%.1f%%", cpuPercent];
@@ -1417,8 +1454,13 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
     NSString *memoryText = fabs(self.memoryTrendMBPerMinute) < 1.0 ? PacerText(@"memory.stable") : [NSString stringWithFormat:@"%+.1f MB/min", self.memoryTrendMBPerMinute];
     [self setStatusLabel:self.memoryStatusLabel text:memoryText color:memoryColor];
 
-    NSColor *metalColor = metalFPS >= 50.0 ? [self healthyColor] : (metalFPS >= 30.0 ? [self warningColor] : [self dangerColor]);
-    [self setStatusLabel:self.metalStatusLabel text:(metalFPS >= 50.0 ? PacerText(@"metal.refresh") : (metalFPS >= 30.0 ? PacerText(@"metal.below") : PacerText(@"metal.low"))) color:metalColor];
+    double healthyMetalFPS = targetRefreshHz > 0.0 ? targetRefreshHz * 0.9 : 50.0;
+    double warningMetalFPS = targetRefreshHz > 0.0 ? targetRefreshHz * 0.7 : 30.0;
+    NSColor *metalColor = metalFPS >= healthyMetalFPS ? [self healthyColor] : (metalFPS >= warningMetalFPS ? [self warningColor] : [self dangerColor]);
+    NSString *metalStatusText = targetRefreshHz > 0.0
+        ? [NSString stringWithFormat:PacerText(@"metal.target"), targetRefreshHz]
+        : (metalFPS >= healthyMetalFPS ? PacerText(@"metal.refresh") : (metalFPS >= warningMetalFPS ? PacerText(@"metal.below") : PacerText(@"metal.low")));
+    [self setStatusLabel:self.metalStatusLabel text:metalStatusText color:metalColor];
 
     NSColor *missColor = missesPerSecond < 0.1 ? [self healthyColor] : (missesPerSecond < 1.0 ? [self warningColor] : [self dangerColor]);
     [self setStatusLabel:self.missStatusLabel text:(missesPerSecond < 0.1 ? PacerText(@"miss.clean") : (missesPerSecond < 1.0 ? PacerText(@"miss.occasional") : PacerText(@"miss.pressure"))) color:missColor];
