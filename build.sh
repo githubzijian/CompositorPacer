@@ -16,6 +16,7 @@ rm -rf "$release_dir"
 mkdir -p "$macos" "$resources"
 
 clang -fobjc-arc \
+  -mmacosx-version-min=10.13 \
   -arch x86_64 \
   -arch arm64 \
   "$project_dir/Sources/CompositorPacerManager.m" \
@@ -46,5 +47,10 @@ if [[ -d "$project_dir/Resources/Assets.xcassets" ]]; then
 fi
 
 codesign --force --deep --sign - "$app_dir"
+
+(
+  cd "$release_dir"
+  ditto -c -k --keepParent "${app_name}.app" "${app_name// /-}-${version}-universal-macOS.zip"
+)
 
 print "built: $app_dir"
