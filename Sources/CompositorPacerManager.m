@@ -1493,6 +1493,7 @@ int main(int argc, const char *argv[]) {
             AgentDelegate *delegate = [[AgentDelegate alloc] init];
             app.delegate = delegate;
         } else {
+            [app setActivationPolicy:NSApplicationActivationPolicyRegular];
             AppDelegate *delegate = [[AppDelegate alloc] init];
             app.delegate = delegate;
         }

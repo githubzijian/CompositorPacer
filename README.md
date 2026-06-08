@@ -357,17 +357,23 @@ plist 不存在 -> 复选框显示未勾选
 
 这个 app 在 `Info.plist` 中设置了 `LSUIElement = true`。因此：
 
-- 主控制窗口不会常驻 Dock 图标。
+- 进程刚启动时默认不会立刻进入 Dock。
 - 点击 Start 启动 `--agent` 时，Dock 不应闪动。
 - 登录项启动 agent 时，Dock 不应出现临时图标。
 
-代码里 agent 模式还会调用：
+普通控制模式启动后会切回常规前台 app，因此控制窗口运行时应该显示 Dock 图标：
+
+```text
+[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular]
+```
+
+agent 模式则会保持为 accessory：
 
 ```text
 [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory]
 ```
 
-这是运行时的补充设置。真正防止启动瞬间 Dock 变化的关键是 `LSUIElement`，因为它在进程注册为 app 之前就生效。
+真正防止 agent 启动瞬间 Dock 变化的关键是 `LSUIElement`，因为它在进程注册为 app 之前就生效。
 
 ## 指标怎么看
 
