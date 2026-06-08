@@ -4,7 +4,7 @@ set -eu
 project_dir="$(cd "$(dirname "$0")" && pwd)"
 app_name="Compositor Pacer"
 bundle_id="local.CompositorPacer"
-version="0.1.0"
+version="0.1.2"
 
 release_dir="$project_dir/release/CompositorPacer"
 app_dir="$release_dir/${app_name}.app"

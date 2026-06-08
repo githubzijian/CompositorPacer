@@ -446,7 +446,7 @@ release/CompositorPacer/Compositor Pacer.app
 GitHub Release 可以上传 zip 版本，例如：
 
 ```text
-release/CompositorPacer/CompositorPacer-0.1.0-macos.zip
+release/CompositorPacer/Compositor-Pacer-0.1.2-universal-macOS.zip
 ```
 
 ## Xcode 打开
