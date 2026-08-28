@@ -72,7 +72,15 @@ static NSString *PacerText(NSString *key) {
             @"log.start.requested": @"agent start requested.",
             @"log.stopping": @"Closing pacer...",
             @"log.stopped": @"Pacer closed.",
-            @"error.start.agent": @"Unable to start agent"
+            @"error.start.agent": @"Unable to start agent",
+            @"menu.about": @"About %@",
+            @"menu.hide": @"Hide %@",
+            @"menu.hideOthers": @"Hide Others",
+            @"menu.showAll": @"Show All",
+            @"menu.quit": @"Quit %@",
+            @"menu.window": @"Window",
+            @"menu.close": @"Close",
+            @"menu.minimize": @"Minimize"
         };
         chinese = @{
             @"app.title": @"Compositor Pacer",
@@ -119,7 +127,15 @@ static NSString *PacerText(NSString *key) {
             @"log.start.requested": @"已请求启动 agent。",
             @"log.stopping": @"正在关闭 pacer...",
             @"log.stopped": @"Pacer 已关闭。",
-            @"error.start.agent": @"无法启动 agent"
+            @"error.start.agent": @"无法启动 agent",
+            @"menu.about": @"关于 %@",
+            @"menu.hide": @"隐藏 %@",
+            @"menu.hideOthers": @"隐藏其他",
+            @"menu.showAll": @"显示全部",
+            @"menu.quit": @"退出 %@",
+            @"menu.window": @"窗口",
+            @"menu.close": @"关闭",
+            @"menu.minimize": @"最小化"
         };
     });
     return (PacerUseChineseLanguage() ? chinese[key] : english[key]) ?: english[key] ?: key;
@@ -593,10 +609,57 @@ static CVReturn MetalPacerDisplayLinkCallback(CVDisplayLinkRef displayLink,
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     (void)notification;
+    [self setupMainMenu];
     [self buildWindow];
     [self startMetricsSampler];
     [self migrateLaunchAgentIfNeeded];
     [self refreshStatus];
+}
+
+- (void)setupMainMenu {
+    NSMenu *mainMenu = [[NSMenu alloc] init];
+
+    // 1. App Submenu
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:appMenuItem];
+
+    NSMenu *appMenu = [[NSMenu alloc] init];
+    appMenuItem.submenu = appMenu;
+
+    NSString *appName = PacerText(@"app.title");
+    NSString *aboutTitle = [NSString stringWithFormat:PacerText(@"menu.about"), appName];
+    [appMenu addItemWithTitle:aboutTitle action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *hideItem = [appMenu addItemWithTitle:[NSString stringWithFormat:PacerText(@"menu.hide"), appName] action:@selector(hide:) keyEquivalent:@"h"];
+    hideItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+
+    NSMenuItem *hideOthersItem = [appMenu addItemWithTitle:PacerText(@"menu.hideOthers") action:@selector(hideOtherApplications:) keyEquivalent:@"h"];
+    hideOthersItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
+
+    [appMenu addItemWithTitle:PacerText(@"menu.showAll") action:@selector(unhideAllApplications:) keyEquivalent:@""];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *quitItem = [appMenu addItemWithTitle:[NSString stringWithFormat:PacerText(@"menu.quit"), appName] action:@selector(terminate:) keyEquivalent:@"q"];
+    quitItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+
+    // 2. Window Submenu
+    NSMenuItem *windowMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:windowMenuItem];
+
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:PacerText(@"menu.window")];
+    windowMenuItem.submenu = windowMenu;
+
+    NSMenuItem *closeItem = [windowMenu addItemWithTitle:PacerText(@"menu.close") action:@selector(performClose:) keyEquivalent:@"w"];
+    closeItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+
+    NSMenuItem *minimizeItem = [windowMenu addItemWithTitle:PacerText(@"menu.minimize") action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+    minimizeItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+
+    NSApp.windowsMenu = windowMenu;
+    NSApp.mainMenu = mainMenu;
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
